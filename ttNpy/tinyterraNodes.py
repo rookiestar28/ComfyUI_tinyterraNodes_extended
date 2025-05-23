@@ -11,13 +11,13 @@
 # Like the pack and want to support me?                     https://www.buymeacoffee.com/tinyterra                                                  #
 #---------------------------------------------------------------------------------------------------------------------------------------------------#
 
-ttN_version = '2.0.7'
+ttN_version = '2.0.8'
 
 import os
 import re
 import json
 import copy
-import random
+import random # <--- 確保 random 被導入
 import datetime
 from pathlib import Path
 from urllib.request import urlopen
@@ -3104,227 +3104,95 @@ class ttN_multiModelMerge:
 
 #---------------------------------------------------------------ttN/text START----------------------------------------------------------------------#
 class ttN_text:
-    version = '1.0.0'
+    version = '1.0.1'  # 更新版本號
+
     def __init__(self):
-        pass
-
-    @classmethod
-    def INPUT_TYPES(s):
-        return {"required": {
-                    "text": ("STRING", {"default": "", "multiline": True, "dynamicPrompts": True}),
-                },
-                "hidden": {"ttNnodeVersion": ttN_text.version},
-        }
-    
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("text",)
-    FUNCTION = "conmeow"
-
-    CATEGORY = "🌏 tinyterra/text"
-
-    @staticmethod
-    def conmeow(text):
-        return text,
-
-class ttN_textDebug:
-    version = '1.0.'
-    def __init__(self):
-        self.num = 0
-
-    @classmethod
-    def INPUT_TYPES(s):
-        return {"required": {
-                    "print_to_console": ([False, True],),
-                    "console_title": ("STRING", {"default": ""}),
-                    "execute": (["Always", "On Change"],),
-                    "text": ("STRING", {"default": '', "multiline": True, "forceInput": True, "dynamicPrompts": True}),
-                    },
-                "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO", "my_unique_id": "UNIQUE_ID",
-                           "ttNnodeVersion": ttN_textDebug.version},
-        }
-
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("text",)
-    FUNCTION = "write"
-    OUTPUT_NODE = True
-
-    CATEGORY = "🌏 tinyterra/text"
-
-    def write(self, print_to_console, console_title, execute, text, prompt, extra_pnginfo, my_unique_id):
-        if execute == "Always":
-            def IS_CHANGED(self):
-                self.num += 1 if self.num == 0 else -1
-                return self.num
-            setattr(self.__class__, 'IS_CHANGED', IS_CHANGED)
-
-        if execute == "On Change":
-            if hasattr(self.__class__, 'IS_CHANGED'):
-                delattr(self.__class__, 'IS_CHANGED')
-
-        if print_to_console == True:
-            if console_title != "":
-                ttNl(text).t(f'textDebug[{my_unique_id}] - {CC.VIOLET}{console_title}').p()
-            else:
-                input_node = prompt[my_unique_id]["inputs"]["text"]
-
-                input_from = None
-                for node in extra_pnginfo["workflow"]["nodes"]:
-                    if node['id'] == int(input_node[0]):
-                        input_from = node['outputs'][input_node[1]].get('label')
-                    
-                        if input_from == None:
-                            input_from = node['outputs'][input_node[1]].get('name')
-
-                ttNl(text).t(f'textDebug[{my_unique_id}] - {CC.VIOLET}{input_from}').p()
-
-        return {"ui": {"text": text},
-                "result": (text,)}
-
-class ttN_concat:
-    version = '1.0.0'
-    def __init__(self):
-        pass
-    """
-    Concatenate 2 strings
-    """
-    @classmethod
-    def INPUT_TYPES(s):
-        return {"required": {
-                    "text1": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
-                    "text2": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
-                    "text3": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
-                    "delimiter": ("STRING", {"default":",","multiline": False}),
-                    },
-                "hidden": {"ttNnodeVersion": ttN_concat.version},
-        }
-
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("concat",)
-    FUNCTION = "conmeow"
-
-    CATEGORY = "🌏 tinyterra/text"
-
-    def conmeow(self, text1='', text2='', text3='', delimiter=''):
-        text1 = '' if text1 == 'undefined' else text1
-        text2 = '' if text2 == 'undefined' else text2
-        text3 = '' if text3 == 'undefined' else text3
-
-        if delimiter == '\\n':
-            delimiter = '\n'
-
-        concat = delimiter.join([text1, text2, text3])
-       
-        return (concat,)
-
-class ttN_text3BOX_3WAYconcat:
-    version = '1.0.0'
-    def __init__(self):
-        pass
-    """
-    Concatenate 3 strings, in various ways.
-    """
-    @classmethod
-    def INPUT_TYPES(s):
-        return {"required": {
-                    "text1": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
-                    "text2": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
-                    "text3": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
-                    "delimiter": ("STRING", {"default":",","multiline": False}),
-                    },
-                "hidden": {"ttNnodeVersion": ttN_text3BOX_3WAYconcat.version},
-        }
-
-    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING", "STRING", "STRING", "STRING",)
-    RETURN_NAMES = ("text1", "text2", "text3", "1 & 2", "1 & 3", "2 & 3", "concat",)
-    FUNCTION = "conmeow"
-
-    CATEGORY = "🌏 tinyterra/text"
-
-    def conmeow(self, text1='', text2='', text3='', delimiter=''):
-        text1 = '' if text1 == 'undefined' else text1
-        text2 = '' if text2 == 'undefined' else text2
-        text3 = '' if text3 == 'undefined' else text3
-
-        if delimiter == '\\n':
-            delimiter = '\n'
-
-        t_1n2 = delimiter.join([text1, text2])
-        t_1n3 = delimiter.join([text1, text3])
-        t_2n3 = delimiter.join([text2, text3])
-        concat = delimiter.join([text1, text2, text3])
-       
-        return text1, text2, text3, t_1n2, t_1n3, t_2n3, concat
-
-class ttN_text7BOX_concat:
-    version = '1.0.0'
-    def __init__(self):
-        pass
-    """
-    Concatenate many strings
-    """
-    @classmethod
-    def INPUT_TYPES(s):
-        return {"required": {
-                    "text1": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
-                    "text2": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
-                    "text3": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
-                    "text4": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
-                    "text5": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
-                    "text6": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
-                    "text7": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
-                    "delimiter": ("STRING", {"default":",","multiline": False}),
-                    },
-                "hidden": {"ttNnodeVersion": ttN_text7BOX_concat.version},
-        }
-
-    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING", "STRING", "STRING", "STRING", "STRING",)
-    RETURN_NAMES = ("text1", "text2", "text3", "text4", "text5", "text6", "text7", "concat",)
-    FUNCTION = "conmeow"
-
-    CATEGORY = "🌏 tinyterra/text"
-
-    def conmeow(self, text1, text2, text3, text4, text5, text6, text7, delimiter):
-        text1 = '' if text1 == 'undefined' else text1
-        text2 = '' if text2 == 'undefined' else text2
-        text3 = '' if text3 == 'undefined' else text3
-        text4 = '' if text4 == 'undefined' else text4
-        text5 = '' if text5 == 'undefined' else text5
-        text6 = '' if text6 == 'undefined' else text6
-        text7 = '' if text7 == 'undefined' else text7
-
-        if delimiter == '\\n':
-            delimiter = '\n'
-            
-        texts = [text1, text2, text3, text4, text5, text6, text7]        
-        concat = delimiter.join(text for text in texts if text)
-        return text1, text2, text3, text4, text5, text6, text7, concat
-
-class ttN_textCycleLine:
-    version = '1.0.0'
-    def __init__(self):
-        pass
+        self._internal_index = 0  # 用於 increment/decrement 模式下跟踪當前行
+        self._last_text_hash = None  # 用於檢測文本是否更改
+        self._last_control_mode = None  # 用於檢測控制模式是否更改
+        self._last_start_index = None # 用於檢測 start_index 是否改變
 
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {
                     "text": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
-                    "index": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
-                    "index_control": (['increment', 'decrement', 'randomize','fixed'],),
+                    "start_index": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),  # 原 index 重命名為 start_index
+                    "index_control": (['fixed', 'increment', 'decrement', 'randomize'], {"default": "fixed"}),
                     },
                 "hidden": {"ttNnodeVersion": ttN_textCycleLine.version},
                 }
 
     RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("text",) # 保持與原始定義一致
     FUNCTION = "cycle"
 
     CATEGORY = "🌏 tinyterra/text"
 
-    def cycle(self, text, index, index_control='randomized'):
+    def cycle(self, text, start_index, index_control='fixed'):
         lines = text.split('\n')
+        
+        # 處理空文本或只有一個空行（被 split 後變成 ['']）的情況
+        if not lines or (len(lines) == 1 and not lines[0].strip()): # 檢查是否為空或只有空白行
+            return ("",)
 
-        if index >= len(lines):
-            index = len(lines) - 1
-        return (lines[index],)
+        num_lines = len(lines)
+        current_text_hash = hash(text)
+        
+        # 決定是否需要根據輸入的變化重置內部循環索引
+        reset_internal_index_due_to_inputs = False
+        if self._last_text_hash != current_text_hash:
+            reset_internal_index_due_to_inputs = True
+        if self._last_control_mode != index_control:
+            reset_internal_index_due_to_inputs = True
+        
+        # 僅當控制模式為 increment 或 decrement 時，start_index 的改變才觸發重置
+        if index_control in ['increment', 'decrement'] and self._last_start_index != start_index:
+            reset_internal_index_due_to_inputs = True
+        
+        # 如果是第一次執行 (例如 _last_control_mode 為 None)，也視為需要初始化 internal_index
+        if self._last_control_mode is None:
+            reset_internal_index_due_to_inputs = True
+            
+        if reset_internal_index_due_to_inputs:
+            # 當需要重置時，將 internal_index 設為有效的 start_index
+            # 這是 increment/decrement 模式的起始點
+            self._internal_index = start_index % num_lines
+            
+        # 更新記錄的狀態，以便下次執行時比較
+        self._last_text_hash = current_text_hash
+        self._last_control_mode = index_control
+        self._last_start_index = start_index
+        
+        output_idx = 0
+
+        if index_control == 'fixed':
+            output_idx = start_index % num_lines
+            # 為了模式切換時的連貫性，同時更新 internal_index
+            # 這樣如果從 fixed 切換到 increment/decrement，會有一個基於 fixed 時的 index 的起點
+            self._internal_index = output_idx 
+        elif index_control == 'increment':
+            # 如果不是由於輸入變化而重置後的第一次執行，則遞增 _internal_index
+            if not reset_internal_index_due_to_inputs:
+                 self._internal_index = (self._internal_index + 1) % num_lines
+            # 無論如何，當前輸出的索引是（可能剛被重置或剛被遞增的）self._internal_index
+            output_idx = self._internal_index
+        elif index_control == 'decrement':
+            # 如果不是由於輸入變化而重置後的第一次執行，則遞減 _internal_index
+            if not reset_internal_index_due_to_inputs:
+                 self._internal_index = (self._internal_index - 1 + num_lines) % num_lines # 加 num_lines 確保結果為正
+            output_idx = self._internal_index
+        elif index_control == 'randomize':
+            output_idx = random.randint(0, num_lines - 1)
+            # 為了模式切換時的連貫性，同時更新 internal_index
+            self._internal_index = output_idx
+            
+        # 再次確保索引在有效範圍內 (主要防止 num_lines 為 0 的極端情況，雖然前面已處理)
+        if num_lines > 0 :
+            output_idx = max(0, min(output_idx, num_lines - 1))
+        else: # 理論上不會到這裡
+            return ("",)
+
+        return (lines[output_idx],)
 
 class ttN_textOUPUT:
     version = '1.0.1'
@@ -3343,7 +3211,7 @@ class ttN_textOUPUT:
                 "overwrite_existing": ("BOOLEAN", {"default": False}),
                 },
                 "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO", "my_unique_id": "UNIQUE_ID",
-                            "ttNnodeVersion": ttN_imageOUPUT.version},
+                            "ttNnodeVersion": ttN_textOUPUT.version}, # Corrected from ttN_imageOUPUT
             }
 
     RETURN_TYPES = ("STRING",)
@@ -3354,7 +3222,10 @@ class ttN_textOUPUT:
 
     def output(self, text_output, text, output_path, save_prefix, number_padding, file_type, overwrite_existing, prompt, extra_pnginfo, my_unique_id):
         if text_output == 'Save':
-            ttN_save = ttNsave(my_unique_id, prompt, extra_pnginfo, number_padding, overwrite_existing, output_path)
+            # Assuming ttNsave handles number_padding correctly (e.g., if "None" then no padding)
+            ttN_save = ttNsave(my_unique_id, prompt, extra_pnginfo, 
+                               int(number_padding) if number_padding != "None" else None, 
+                               overwrite_existing, output_path)
             ttN_save.textfile(text, save_prefix, file_type)
 
         # Output text results to ui and node outputs
@@ -3674,7 +3545,7 @@ TTN_VERSIONS = {
     "advPlot combo": ttN_advPlot_combo.version,
     "advPlot merge": ttN_advPlot_merge.version,
     "pipeEncodeConcat": ttN_pipeEncodeConcat.version,
-    "multiLoraStack": ttN_pipeLoraStack.version,
+    "pipeLoraStack": ttN_pipeLoraStack.version, # Corrected key from multiLoraStack
     "multiModelMerge": ttN_multiModelMerge.version,
     "debugInput": ttN_debugInput.version,
     "text": ttN_text.version,
@@ -3682,7 +3553,7 @@ TTN_VERSIONS = {
     "concat": ttN_concat.version,
     "text3BOX_3WAYconcat": ttN_text3BOX_3WAYconcat.version,    
     "text7BOX_concat": ttN_text7BOX_concat.version,
-    "textCycleLine": ttN_textCycleLine.version,
+    "textCycleLine": ttN_textCycleLine.version, # 使用類屬性獲取更新後的版本號
     "textOutput": ttN_textOUPUT.version,
     "imageOutput": ttN_imageOUPUT.version,
     "imageREMBG": ttN_imageREMBG.version,
@@ -3691,6 +3562,7 @@ TTN_VERSIONS = {
     "float": ttN_FLOAT.version,
     "seed": ttN_SEED.version
 }
+
 NODE_CLASS_MAPPINGS = {
     #ttN/base
     "ttN tinyLoader": ttN_tinyLoader,
@@ -3725,7 +3597,7 @@ NODE_CLASS_MAPPINGS = {
     "ttN concat": ttN_concat,
     "ttN text3BOX_3WAYconcat": ttN_text3BOX_3WAYconcat,    
     "ttN text7BOX_concat": ttN_text7BOX_concat,
-    "ttN textCycleLine": ttN_textCycleLine,
+    "ttN textCycleLine": ttN_textCycleLine, # 確保這裡映射的是更新後的類
     "ttN textOutput": ttN_textOUPUT,
 
     #ttN/image
@@ -3774,7 +3646,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ttN concat": "textConcat",
     "ttN text7BOX_concat": "7x TXT Loader Concat",
     "ttN text3BOX_3WAYconcat": "3x TXT Loader MultiConcat",
-    "ttN textCycleLine": "textCycleLine",
+    "ttN textCycleLine": "textCycleLine", # 顯示名稱保持不變
     "ttN textOutput": "textOutput",
 
     #ttN/image
@@ -3788,7 +3660,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ttN seed": "seed",
 }
 
-ttNl('Loaded').full().p()
+ttNl('Loaded').full().p() # 假設 ttNl 來自 .utils
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------#
 # (upscale from QualityOfLifeSuite_Omar92) -                https://github.com/omar92/ComfyUI-QualityOfLifeSuit_Omar92                              #
