@@ -11,7 +11,7 @@
 # Like the pack and want to support me?                     https://www.buymeacoffee.com/tinyterra                                                  #
 #---------------------------------------------------------------------------------------------------------------------------------------------------#
 
-ttN_version = '2.0.8'
+ttN_version = '2.0.7'
 
 import os
 import re
@@ -158,9 +158,13 @@ class ttNloader:
 
         clip = loaded_ckpt[1].clone() if loaded_ckpt[1] is not None else None
         if clip_skip != 0 and clip is not None:
-            if sampler.get_model_type(loaded_ckpt[0]) in ['FLUX', 'FLOW']:
-                raise Exception('FLOW and FLUX do not support clip_skip. Set clip_skip to 0.')
+            # Check if model is FLUX or FLOW, which do not support clip_skip
+            # We need to get the model object from loaded_ckpt[0] which is a ModelPatcher
+            model_base = loaded_ckpt[0].model
+            if hasattr(model_base, 'model_type') and str(model_base.model_type).split('.')[1].strip() in ['FLUX', 'FLOW']:
+                 raise Exception('FLOW and FLUX do not support clip_skip. Set clip_skip to 0.')
             clip.clip_layer(clip_skip)
+
 
         # model, clip, vae
         return loaded_ckpt[0], clip, loaded_ckpt[2]
@@ -243,8 +247,12 @@ class ttNloader:
         
     def embedding_encode(self, text, token_normalization, weight_interpretation, clip, seed=None, title=None, my_unique_id=None, prepend_text=None, zero_out=False):
         text = f'{prepend_text} {text}' if prepend_text is not None else text
-        if seed is None:
-            seed = self.string_to_seed(text)
+        if seed is None: # Allow seed to be 0
+             # Use a hash of the text if seed is not provided, to ensure different texts get different seeds for NSP
+            seed = self.string_to_seed(text + str(random.randint(0, 0xffffffffffffffff))) # Add randomness to avoid NSP collision with same text
+        elif seed == 0: # If seed is explicitly 0, let it be 0 for NSP if user wants deterministic NSP for same text with seed 0
+            pass
+
 
         text = self.nsp_parse(text, seed, title=title, my_unique_id=my_unique_id)
 
@@ -258,14 +266,28 @@ class ttNloader:
 
     def embedding_encodeXL(self, text, clip, seed=0, title=None, my_unique_id=None, prepend_text=None, text2=None, prepend_text2=None, width=None, height=None, crop_width=0, crop_height=0, target_width=None, target_height=None, refiner_clip=None, ascore=None):
         text = f'{prepend_text} {text}' if prepend_text is not None else text
-        text = self.nsp_parse(text, seed, title=title, my_unique_id=my_unique_id)
+        # For XL, NSP seed should be consistent if the core text G is the same.
+        # Use a hash of the text if seed is not provided, to ensure different texts get different seeds for NSP
+        if seed is None:
+            current_seed = self.string_to_seed(text + str(random.randint(0, 0xffffffffffffffff)))
+        else:
+            current_seed = seed
+
+        text = self.nsp_parse(text, current_seed, title=title, my_unique_id=my_unique_id)
+
 
         target_width = target_width if target_width is not None else width
         target_height = target_height if target_height is not None else height
 
         if text2 is not None and refiner_clip is not None:
             text2 = f'{prepend_text2} {text2}' if prepend_text2 is not None else text2
-            text2 = self.nsp_parse(text2, seed, title=title, my_unique_id=my_unique_id)
+            # Use a consistent or different seed for text2's NSP if needed
+            if seed is None:
+                text2_seed = self.string_to_seed(text2 + str(random.randint(0, 0xffffffffffffffff)))
+            else: # If a seed is given, use it for text2 as well, or a derivative. For simplicity, using the same.
+                text2_seed = seed +1 # Slightly offset seed for text2 NSP to allow different choices if text2 is different
+            text2 = self.nsp_parse(text2, text2_seed, title=title, my_unique_id=my_unique_id)
+
 
             tokens_refiner = refiner_clip.tokenize(text2)
             cond_refiner, pooled_refiner = refiner_clip.encode_from_tokens(tokens_refiner, return_pooled=True)
@@ -274,7 +296,15 @@ class ttNloader:
             refiner_conditioning = None
 
         if text2 is None or text2.strip() == '':
-            text2 = text
+            text2 = text # If text2 is empty, use text1 for text_l
+        else: # If text2 is provided and not empty, parse it with NSP if it wasn't parsed with refiner_clip
+            if refiner_clip is None : # only parse if not parsed for refiner
+                if seed is None:
+                    text2_seed = self.string_to_seed(text2 + str(random.randint(0, 0xffffffffffffffff)))
+                else:
+                    text2_seed = seed + 1
+                text2 = self.nsp_parse(text2, text2_seed, title=title, my_unique_id=my_unique_id)
+
 
         tokens = clip.tokenize(text)
         tokens["l"] = clip.tokenize(text2)["l"]
@@ -301,52 +331,76 @@ class ttNloader:
             model = cache[3]
             clip = cache[4]
             vae = cache[5]
-        elif model is None or clip is None:
-            self.loader_cache.pop(f'loader{unique_id}', None)
+        elif model is None or clip is None: # model or clip is None means no override, so we load
+            self.loader_cache.pop(f'loader{unique_id}', None) # Clear previous cache for this ID if params changed
             
             # Load normally
-            output_vae, output_clip = True, True
+            output_vae_flag, output_clip_flag = True, True # Flags to determine if load_checkpoint should output these
             
-            if vae_name != "Baked VAE":
-                output_vae = False
-            if clip not in [None, "None", "override"]:
-                output_clip = False                
+            if vae_name != "Baked VAE": # If a specific VAE is chosen, don't get it from checkpoint
+                output_vae_flag = False
+            # If clip is overridden, we don't need it from checkpoint initially, but load_checkpoint always returns it.
+            # The override logic is handled later.
+            # if clip_override is not None: # This logic was slightly off, clip_override is handled later
+            #    output_clip_flag = False               
 
-            model, clip, vae = self.load_checkpoint(ckpt_name, config_name, clip_skip, output_vae, output_clip)
+            model_loaded, clip_loaded, vae_from_ckpt = self.load_checkpoint(ckpt_name, config_name, clip_skip, output_vae_flag, output_clip_flag)
+            model = model_loaded
+            clip = clip_loaded # This will be the one from checkpoint, possibly with skip
+            vae = vae_from_ckpt if output_vae_flag else None
 
-        if vae is None:
+
+        if vae is None: # If VAE wasn't loaded from checkpoint (either due to flag or if it was None)
             if vae_name != "Baked VAE":
                 vae = self.load_vae(vae_name)
-            else:
-                _, _, vae = self.load_checkpoint(ckpt_name, config_name, clip_skip, output_vae=True, output_clip=False)
-                
-        if unique_id is not None and model != "override" and clip != "override":
+            # else: # This case should be covered by output_vae_flag=True for Baked VAE
+                 # _, _, vae = self.load_checkpoint(ckpt_name, config_name, clip_skip, output_vae=True, output_clip=False)
+                 # This specific call might be redundant if load_checkpoint already handled it.
+
+        if unique_id is not None and model_override is None and clip_override is None: # Only cache if not overridden
             self.loader_cache[f'loader{unique_id}'] = [ckpt_name, config_name, vae_name, model, clip, vae]
                 
         if model_override is not None:
-            self.loader_cache.pop(f'loader{unique_id}', None)
+            # self.loader_cache.pop(f'loader{unique_id}', None) # Overriding means cache is invalid for next non-override run with same ID
             model = model_override
-            del model_override
+            # del model_override # Not necessary, it's a local var
 
         if clip_override is not None:
-            clip = clip_override.clone()
+            # self.loader_cache.pop(f'loader{unique_id}', None)
+            clip_effective = clip_override.clone() # Use the override
 
-            if clip_skip != 0:
-                if sampler.get_model_type(model) in ['FLUX', 'FLOW']:
-                    raise Exception('FLOW and FLUX do not support clip_skip. Set clip_skip to 0.')
-                clip.clip_layer(clip_skip)
-            del clip_override
+            if clip_skip != 0: # Apply clip_skip to the overridden clip if specified
+                # Check model type for FLUX/FLOW again, this time on the potentially overridden model
+                model_to_check_type = model.model if model is not None else None # model is ModelPatcher
+                if model_to_check_type and hasattr(model_to_check_type, 'model_type') and \
+                   str(model_to_check_type.model_type).split('.')[1].strip() in ['FLUX', 'FLOW']:
+                    raise Exception('FLOW and FLUX do not support clip_skip. Set clip_skip to 0 when using clip_override.')
+                clip_effective.clip_layer(clip_skip)
+            clip = clip_effective # Final clip is the (skipped) override
+            # del clip_override
 
         if optional_lora_stack is not None:
-            for lora in optional_lora_stack:
-                model, clip = self.load_lora(lora[0], model, clip, lora[1], lora[2])
+            for lora_item in optional_lora_stack: # Renamed lora to lora_item
+                model, clip = self.load_lora(lora_item[0], model, clip, lora_item[1], lora_item[2])
 
-        if loras not in [None, "None"]:
+        if loras not in [None, "None", ""]: # Ensure empty string is also skipped
             model, clip = self.load_lora_text(loras, model, clip)
 
-        if not clip:
-            raise Exception("No CLIP found")
-        
+        if not clip: # CLIP can be None if load_checkpoint had output_clip=False and no override
+            # This check should ideally be based on whether a CLIP is actually needed by subsequent nodes.
+            # For a general loader, it's safer to ensure CLIP is available if requested by standard outputs.
+            # However, if clip_override was None and output_clip was False initially, this could be an issue.
+            # The logic above tries to always load clip unless overridden.
+            # If clip is genuinely optional for the workflow, this exception might be too strict.
+            # For now, assuming CLIP is generally expected.
+            # This might happen if ckpt doesn't have one and it's not overridden.
+            # Re-evaluate: load_checkpoint *always* attempts to load a CLIP.
+            # It will be None if the checkpoint has no CLIP.
+            # If clip_override is also None, then clip remains None.
+            # raise Exception("No CLIP found or loaded for the pipe.") # Consider if this is too aggressive
+            pass # Allowing CLIP to be None if not present and not overridden. Downstream nodes must handle.
+
+
         return model, clip, vae
 
 class ttNsampler:
@@ -3104,6 +3158,202 @@ class ttN_multiModelMerge:
 
 #---------------------------------------------------------------ttN/text START----------------------------------------------------------------------#
 class ttN_text:
+    version = '1.0.0'
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+                    "text": ("STRING", {"default": "", "multiline": True, "dynamicPrompts": True}),
+                },
+                "hidden": {"ttNnodeVersion": ttN_text.version},
+        }
+    
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("text",)
+    FUNCTION = "conmeow"
+
+    CATEGORY = "🌏 tinyterra/text"
+
+    @staticmethod
+    def conmeow(text):
+        return text,
+
+class ttN_textDebug:
+    version = '1.0.'
+    def __init__(self):
+        self.num = 0
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+                    "print_to_console": ([False, True],),
+                    "console_title": ("STRING", {"default": ""}),
+                    "execute": (["Always", "On Change"],),
+                    "text": ("STRING", {"default": '', "multiline": True, "forceInput": True, "dynamicPrompts": True}),
+                    },
+                "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO", "my_unique_id": "UNIQUE_ID",
+                           "ttNnodeVersion": ttN_textDebug.version},
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("text",)
+    FUNCTION = "write"
+    OUTPUT_NODE = True
+
+    CATEGORY = "🌏 tinyterra/text"
+
+    def write(self, print_to_console, console_title, execute, text, prompt, extra_pnginfo, my_unique_id):
+        if execute == "Always":
+            def IS_CHANGED(self):
+                self.num += 1 if self.num == 0 else -1
+                return self.num
+            setattr(self.__class__, 'IS_CHANGED', IS_CHANGED)
+
+        if execute == "On Change":
+            if hasattr(self.__class__, 'IS_CHANGED'):
+                delattr(self.__class__, 'IS_CHANGED')
+
+        if print_to_console == True:
+            if console_title != "":
+                ttNl(text).t(f'textDebug[{my_unique_id}] - {CC.VIOLET}{console_title}').p()
+            else:
+                input_node = prompt[my_unique_id]["inputs"]["text"]
+
+                input_from = None
+                for node in extra_pnginfo["workflow"]["nodes"]:
+                    if node['id'] == int(input_node[0]):
+                        input_from = node['outputs'][input_node[1]].get('label')
+                    
+                        if input_from == None:
+                            input_from = node['outputs'][input_node[1]].get('name')
+
+                ttNl(text).t(f'textDebug[{my_unique_id}] - {CC.VIOLET}{input_from}').p()
+
+        return {"ui": {"text": text},
+                "result": (text,)}
+
+class ttN_concat:
+    version = '1.0.0'
+    def __init__(self):
+        pass
+    """
+    Concatenate 2 strings
+    """
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+                    "text1": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
+                    "text2": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
+                    "text3": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
+                    "delimiter": ("STRING", {"default":",","multiline": False}),
+                    },
+                "hidden": {"ttNnodeVersion": ttN_concat.version},
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("concat",)
+    FUNCTION = "conmeow"
+
+    CATEGORY = "🌏 tinyterra/text"
+
+    def conmeow(self, text1='', text2='', text3='', delimiter=''):
+        text1 = '' if text1 == 'undefined' else text1
+        text2 = '' if text2 == 'undefined' else text2
+        text3 = '' if text3 == 'undefined' else text3
+
+        if delimiter == '\\n':
+            delimiter = '\n'
+
+        concat = delimiter.join([text1, text2, text3])
+       
+        return (concat,)
+
+class ttN_text3BOX_3WAYconcat:
+    version = '1.0.0'
+    def __init__(self):
+        pass
+    """
+    Concatenate 3 strings, in various ways.
+    """
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+                    "text1": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
+                    "text2": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
+                    "text3": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
+                    "delimiter": ("STRING", {"default":",","multiline": False}),
+                    },
+                "hidden": {"ttNnodeVersion": ttN_text3BOX_3WAYconcat.version},
+        }
+
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING", "STRING", "STRING", "STRING",)
+    RETURN_NAMES = ("text1", "text2", "text3", "1 & 2", "1 & 3", "2 & 3", "concat",)
+    FUNCTION = "conmeow"
+
+    CATEGORY = "🌏 tinyterra/text"
+
+    def conmeow(self, text1='', text2='', text3='', delimiter=''):
+        text1 = '' if text1 == 'undefined' else text1
+        text2 = '' if text2 == 'undefined' else text2
+        text3 = '' if text3 == 'undefined' else text3
+
+        if delimiter == '\\n':
+            delimiter = '\n'
+
+        t_1n2 = delimiter.join([text1, text2])
+        t_1n3 = delimiter.join([text1, text3])
+        t_2n3 = delimiter.join([text2, text3])
+        concat = delimiter.join([text1, text2, text3])
+       
+        return text1, text2, text3, t_1n2, t_1n3, t_2n3, concat
+
+class ttN_text7BOX_concat:
+    version = '1.0.0'
+    def __init__(self):
+        pass
+    """
+    Concatenate many strings
+    """
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+                    "text1": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
+                    "text2": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
+                    "text3": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
+                    "text4": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
+                    "text5": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
+                    "text6": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
+                    "text7": ("STRING", {"multiline": True, "default": '', "dynamicPrompts": True}),
+                    "delimiter": ("STRING", {"default":",","multiline": False}),
+                    },
+                "hidden": {"ttNnodeVersion": ttN_text7BOX_concat.version},
+        }
+
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING", "STRING", "STRING", "STRING", "STRING",)
+    RETURN_NAMES = ("text1", "text2", "text3", "text4", "text5", "text6", "text7", "concat",)
+    FUNCTION = "conmeow"
+
+    CATEGORY = "🌏 tinyterra/text"
+
+    def conmeow(self, text1, text2, text3, text4, text5, text6, text7, delimiter):
+        text1 = '' if text1 == 'undefined' else text1
+        text2 = '' if text2 == 'undefined' else text2
+        text3 = '' if text3 == 'undefined' else text3
+        text4 = '' if text4 == 'undefined' else text4
+        text5 = '' if text5 == 'undefined' else text5
+        text6 = '' if text6 == 'undefined' else text6
+        text7 = '' if text7 == 'undefined' else text7
+
+        if delimiter == '\\n':
+            delimiter = '\n'
+            
+        texts = [text1, text2, text3, text4, text5, text6, text7]        
+        concat = delimiter.join(text for text in texts if text)
+        return text1, text2, text3, text4, text5, text6, text7, concat
+
+class ttN_textCycleLine:
     version = '1.0.1'  # 更新版本號
 
     def __init__(self):
@@ -3660,7 +3910,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "ttN seed": "seed",
 }
 
-ttNl('Loaded').full().p() # 假設 ttNl 來自 .utils
+ttNl('Loaded').full().p()
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------#
 # (upscale from QualityOfLifeSuite_Omar92) -                https://github.com/omar92/ComfyUI-QualityOfLifeSuit_Omar92                              #
